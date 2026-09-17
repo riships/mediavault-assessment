@@ -1,14 +1,73 @@
-﻿import type { Asset, AssetPage, AssetQuery, BulkResult } from '@/lib/types';
+import type { Asset, AssetPage, AssetQuery, BulkResult } from '@/lib/types';
 
 export class ApiError extends Error {
   constructor(
     public status: number,
     public code: string,
     message: string,
+    public retryAfter?: number,
   ) {
     super(message);
     this.name = 'ApiError';
   }
+}
+
+const NON_RETRYABLE_STATUSES = new Set([400, 401, 403, 404, 409, 422]);
+const TRANSIENT_STATUSES = new Set([429, 500, 502, 503, 504]);
+const MAX_RETRIES = 3;
+
+function parseRetryAfter(header: string | null): number | null {
+  if (!header) return null;
+  const seconds = Number(header);
+  if (!Number.isNaN(seconds) && seconds >= 0) {
+    return seconds * 1000;
+  }
+  const dateMs = Date.parse(header);
+  if (!Number.isNaN(dateMs)) {
+    return Math.max(0, dateMs - Date.now());
+  }
+  return null;
+}
+
+function delayWithSignal(ms: number, signal?: AbortSignal | null): Promise<void> {
+  return new Promise((resolve, reject) => {
+    if (signal?.aborted) {
+      return reject(signal.reason ?? new DOMException('Aborted', 'AbortError'));
+    }
+    const timeout = setTimeout(() => {
+      signal?.removeEventListener('abort', onAbort);
+      resolve();
+    }, ms);
+
+    const onAbort = () => {
+      clearTimeout(timeout);
+      reject(signal?.reason ?? new DOMException('Aborted', 'AbortError'));
+    };
+
+    signal?.addEventListener('abort', onAbort, { once: true });
+  });
+}
+
+function formatErrorMessage(status: number, code: string, detail?: string): string {
+  if (status === 0 || code === 'offline') {
+    return 'You are currently offline. Please check your network connection.';
+  }
+  if (status === 429) {
+    return 'The server is temporarily busy. Please wait a moment before trying again.';
+  }
+  if (status === 503) {
+    return 'The search service is temporarily warming up. Please try again shortly.';
+  }
+  if (status === 409) {
+    return 'Version conflict: This asset was modified in another session.';
+  }
+  if (status === 400 && code === 'stale_cursor') {
+    return 'Your search session has refreshed. Please try your search again.';
+  }
+  if (detail && !detail.includes('in the last 10 seconds')) {
+    return detail;
+  }
+  return `Server request failed with status ${status}.`;
 }
 
 function toSearchParams(query: AssetQuery): string {
@@ -45,23 +104,118 @@ async function runWithConcurrency<T, R>(
 }
 
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
-  const res = await fetch(path, {
-    ...init,
-    headers: { 'content-type': 'application/json', ...(init?.headers ?? {}) },
-  });
-  if (!res.ok) {
-    let detail = res.statusText;
-    let code = 'unknown';
-    try {
-      const body = await res.json();
-      detail = body?.error?.message ?? detail;
-      code = body?.error?.code ?? code;
-    } catch {
-      /* response was not JSON */
+  for (let attempt = 0; attempt <= MAX_RETRIES; attempt++) {
+    // If browser is offline, reject immediately to stop hammering
+    if (typeof navigator !== 'undefined' && !navigator.onLine) {
+      throw new ApiError(0, 'offline', formatErrorMessage(0, 'offline'));
     }
-    throw new ApiError(res.status, code, `${res.status}: ${detail}`);
+
+    // Do not proceed or retry if request was aborted by caller
+    if (init?.signal?.aborted) {
+      throw init.signal.reason ?? new DOMException('Aborted', 'AbortError');
+    }
+
+    try {
+      const res = await fetch(path, {
+        ...init,
+        headers: { 'content-type': 'application/json', ...(init?.headers ?? {}) },
+      });
+
+      if (res.ok) {
+        return (await res.json()) as Promise<T>;
+      }
+
+      // Check structural non-retryable status codes (400, 409, 422, etc.)
+      if (NON_RETRYABLE_STATUSES.has(res.status)) {
+        let detail = res.statusText;
+        let code = 'unknown';
+        try {
+          const body = await res.json();
+          detail = body?.error?.message ?? detail;
+          code = body?.error?.code ?? code;
+        } catch {
+          /* response was not JSON */
+        }
+        throw new ApiError(res.status, code, formatErrorMessage(res.status, code, detail));
+      }
+
+      // Check transient status codes (429, 503, etc.)
+      if (TRANSIENT_STATUSES.has(res.status)) {
+        const retryAfterMs = parseRetryAfter(res.headers.get('retry-after'));
+        if (attempt < MAX_RETRIES) {
+          const jitter = Math.floor(Math.random() * 200) + 50;
+          const backoff =
+            retryAfterMs !== null
+              ? retryAfterMs + jitter
+              : Math.min(300 * Math.pow(2, attempt) + jitter, 8000);
+
+          await delayWithSignal(backoff, init?.signal);
+          continue;
+        }
+
+        // Cap reached: throw actionable ApiError
+        let detail = res.statusText;
+        let code = 'unknown';
+        try {
+          const body = await res.json();
+          detail = body?.error?.message ?? detail;
+          code = body?.error?.code ?? code;
+        } catch {
+          /* response was not JSON */
+        }
+        throw new ApiError(
+          res.status,
+          code,
+          formatErrorMessage(res.status, code, detail),
+          retryAfterMs ?? undefined,
+        );
+      }
+
+      // Other unexpected status codes
+      let detail = res.statusText;
+      let code = 'unknown';
+      try {
+        const body = await res.json();
+        detail = body?.error?.message ?? detail;
+        code = body?.error?.code ?? code;
+      } catch {
+        /* response was not JSON */
+      }
+      throw new ApiError(res.status, code, formatErrorMessage(res.status, code, detail));
+    } catch (err) {
+      if (
+        (err instanceof DOMException && err.name === 'AbortError') ||
+        (err instanceof Error && err.name === 'AbortError') ||
+        init?.signal?.aborted
+      ) {
+        throw err;
+      }
+
+      if (err instanceof ApiError) {
+        throw err;
+      }
+
+      // Network error (e.g. TypeError from fetch failed / offline dropped)
+      if (typeof navigator !== 'undefined' && !navigator.onLine) {
+        throw new ApiError(0, 'offline', formatErrorMessage(0, 'offline'));
+      }
+
+      if (attempt < MAX_RETRIES) {
+        const jitter = Math.floor(Math.random() * 200) + 50;
+        const backoff = Math.min(300 * Math.pow(2, attempt) + jitter, 8000);
+        await delayWithSignal(backoff, init?.signal);
+        continue;
+      }
+
+      throw new ApiError(
+        0,
+        'network_error',
+        'Network error. Please check your connection and try again.',
+      );
+    }
   }
-  return res.json() as Promise<T>;
+
+  throw new ApiError(0, 'unknown', 'Request failed after maximum retry attempts.');
 }
 
 export function listAssets(query: AssetQuery, init?: RequestInit): Promise<AssetPage> {
@@ -73,7 +227,6 @@ export function getAsset(id: string): Promise<Asset> {
 }
 
 export function getAssetsByIds(ids: string[]): Promise<{ items: Asset[]; missing: string[] }> {
-  // Note: the endpoint rejects more than 25 ids per call.
   return request(`/api/assets/batch?ids=${ids.join(',')}`);
 }
 

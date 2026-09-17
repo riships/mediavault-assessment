@@ -1,10 +1,12 @@
-﻿import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { bulkSetStatus } from '@/api/client';
 import { AssetDetail } from '@/features/assets/AssetDetail';
 import { AssetGrid } from '@/features/assets/AssetGrid';
 import { useAssets } from '@/features/assets/useAssets';
+import { ErrorBoundary } from '@/lib/ErrorBoundary';
 import { statusLabel, statusSymbol } from '@/lib/format';
 import { useDebounce } from '@/lib/useDebounce';
+import { useOnlineStatus } from '@/lib/useOnlineStatus';
 import type { Asset, AssetStatus, AssetQuery } from '@/lib/types';
 
 const STATUSES: AssetStatus[] = ['draft', 'in_review', 'approved', 'archived'];
@@ -52,6 +54,8 @@ export function App() {
   } | null>(null);
 
   const lastSelectedIdRef = useRef<string | null>(null);
+  const isOnline = useOnlineStatus();
+  const wasOfflineRef = useRef(false);
 
   // 300ms debounce buffer prevents keystroke flooding and rate limit exhaustion
   const {
@@ -61,6 +65,7 @@ export function App() {
     loadingMore,
     hasMore,
     loadMore,
+    reload,
     error,
     applyOptimisticStatus,
     updateAssetInList,
@@ -70,6 +75,16 @@ export function App() {
     sort,
     limit: 48,
   });
+
+  // Track transition from offline to online and notify user of sync
+  useEffect(() => {
+    if (isOnline && wasOfflineRef.current) {
+      setNotice('Connection restored. Latest assets loaded.');
+      wasOfflineRef.current = false;
+    } else if (!isOnline) {
+      wasOfflineRef.current = true;
+    }
+  }, [isOnline]);
 
   // Synchronize state to URL using replaceState (avoids creating 1 history entry per keystroke)
   useEffect(() => {
@@ -138,6 +153,10 @@ export function App() {
 
   // Optimistic bulk update with selective rollback on 207 Multi-Status
   async function applyBulkStatus(next: AssetStatus, targetIds?: string[]) {
+    if (!isOnline) {
+      setNotice('You are currently offline. Changes cannot be saved until connection returns.');
+      return;
+    }
     const ids = targetIds ?? [...selectedIds];
     if (ids.length === 0) return;
     setNotice(null);
@@ -193,6 +212,29 @@ export function App() {
 
   return (
     <div className="app">
+      {!isOnline && (
+        <aside className="offline-banner" role="status" aria-live="assertive">
+          <svg
+            className="offline-banner__icon"
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            strokeWidth="2"
+            strokeLinecap="round"
+            strokeLinejoin="round"
+            aria-hidden="true"
+          >
+            <line x1="1" y1="1" x2="23" y2="23" />
+            <path d="M16.72 11.06A10.94 10.94 0 0 1 19 12.55" />
+            <path d="M5 12.55a10.94 10.94 0 0 1 5.17-2.39" />
+            <path d="M10.71 5.05A16 16 0 0 1 22.58 9" />
+            <path d="M1.42 9a15.91 15.91 0 0 1 4.7-2.88" />
+            <path d="M8.53 16.11a6 6 0 0 1 6.95 0" />
+            <line x1="12" y1="20" x2="12.01" y2="20" />
+          </svg>
+          <span>You are currently offline. Changes cannot be saved until connection is restored.</span>
+        </aside>
+      )}
       <header className="topbar">
         <div className="topbar__brand">
           <div className="topbar__logo" aria-hidden="true">
@@ -336,30 +378,70 @@ export function App() {
           )}
         </div>
       )}
-      {error && <div className="error">{error}</div>}
+      {error && (
+        <div className="error" role="alert">
+          <span>{error}</span>
+          <button type="button" onClick={reload}>
+            Retry
+          </button>
+        </div>
+      )}
 
       <main className="content">
-        <AssetGrid
-          assets={items}
-          selectedIds={selectedIds}
-          activeId={activeId}
-          loading={loading}
-          hasMore={hasMore}
-          loadingMore={loadingMore}
-          onLoadMore={loadMore}
-          onToggleSelect={toggleSelect}
-          onOpen={setActiveId}
-        />
+        <ErrorBoundary
+          className="error-boundary--contained"
+          title="Grid failed to render"
+        >
+          <AssetGrid
+            assets={items}
+            selectedIds={selectedIds}
+            activeId={activeId}
+            loading={loading}
+            hasMore={hasMore}
+            loadingMore={loadingMore}
+            onLoadMore={loadMore}
+            onToggleSelect={toggleSelect}
+            onOpen={setActiveId}
+          />
+        </ErrorBoundary>
 
         {activeId && (
-          <AssetDetail
-            id={activeId}
-            onClose={() => setActiveId(null)}
-            onSaved={(updated: Asset) => {
-              setActiveId(updated.id);
-              updateAssetInList(updated);
-            }}
-          />
+          <ErrorBoundary
+            resetKeys={[activeId]}
+            onReset={() => setActiveId(null)}
+            fallback={(err, reset) => (
+              <aside className="panel" role="dialog" aria-label="Asset detail error" aria-modal="true">
+                <div className="panel__head">
+                  <h2>Asset detail</h2>
+                  <button type="button" onClick={() => setActiveId(null)} aria-label="Close detail panel">
+                    Close
+                  </button>
+                </div>
+                <div className="panel__body" style={{ padding: '24px' }}>
+                  <p className="error" role="alert">
+                    Failed to display asset details: {err.message || 'Unexpected error'}
+                  </p>
+                  <div style={{ marginTop: '16px', display: 'flex', gap: '8px' }}>
+                    <button type="button" onClick={reset}>
+                      Try again
+                    </button>
+                    <button type="button" onClick={() => setActiveId(null)}>
+                      Close panel
+                    </button>
+                  </div>
+                </div>
+              </aside>
+            )}
+          >
+            <AssetDetail
+              id={activeId}
+              onClose={() => setActiveId(null)}
+              onSaved={(updated: Asset) => {
+                setActiveId(updated.id);
+                updateAssetInList(updated);
+              }}
+            />
+          </ErrorBoundary>
         )}
       </main>
     </div>

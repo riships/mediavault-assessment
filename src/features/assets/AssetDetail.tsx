@@ -1,4 +1,4 @@
-﻿import { useEffect, useRef, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { ApiError, getAsset, thumbnailUrl, updateAsset } from '@/api/client';
 import { formatBytes, formatDate, formatDuration, statusLabel, statusSymbol } from '@/lib/format';
 import type { Asset, AssetStatus } from '@/lib/types';
@@ -76,16 +76,35 @@ export function AssetDetail({ id, onClose, onSaved }: Props) {
     return () => window.removeEventListener('keydown', handleKeyDown);
   }, [onClose]);
 
-  useEffect(() => {
+  const loadAsset = () => {
     setAsset(null);
     setError(null);
     getAsset(id)
       .then(setAsset)
       .catch((err: unknown) => setError(err instanceof Error ? err.message : 'Load failed'));
+  };
+
+  useEffect(() => {
+    loadAsset();
   }, [id]);
+
+  // Auto-recover when network reconnects
+  useEffect(() => {
+    const handleOnline = () => {
+      if (!asset) {
+        loadAsset();
+      }
+    };
+    window.addEventListener('online', handleOnline);
+    return () => window.removeEventListener('online', handleOnline);
+  }, [id, asset]);
 
   async function setStatus(status: AssetStatus) {
     if (!asset) return;
+    if (typeof navigator !== 'undefined' && !navigator.onLine) {
+      setError('You are offline. Reconnect to save status changes.');
+      return;
+    }
     setSaving(true);
     setError(null);
     try {
@@ -120,9 +139,12 @@ export function AssetDetail({ id, onClose, onSaved }: Props) {
       </div>
 
       {error && (
-        <p className="error" role="alert">
-          {error}
-        </p>
+        <div className="error" role="alert" style={{ margin: '8px 16px' }}>
+          <span>{error}</span>
+          <button type="button" onClick={loadAsset}>
+            Retry
+          </button>
+        </div>
       )}
       {!asset && !error && (
         <div className="panel-loader" role="status" aria-live="polite">

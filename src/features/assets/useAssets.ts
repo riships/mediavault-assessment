@@ -1,4 +1,4 @@
-﻿import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { listAssets } from '@/api/client';
 import type { Asset, AssetQuery } from '@/lib/types';
 
@@ -27,7 +27,21 @@ export function useAssets(query: Omit<AssetQuery, 'cursor'>) {
   nextCursorRef.current = state.nextCursor;
   const isLoadingMoreRef = useRef(false);
 
-  // When query parameters change, reset pagination and fetch page 1
+  const [reloadTrigger, setReloadTrigger] = useState(0);
+  const reload = useCallback(() => {
+    setReloadTrigger((n) => n + 1);
+  }, []);
+
+  // Auto-recover and re-fetch when connection returns online
+  useEffect(() => {
+    const handleOnline = () => {
+      reload();
+    };
+    window.addEventListener('online', handleOnline);
+    return () => window.removeEventListener('online', handleOnline);
+  }, [reload]);
+
+  // When query parameters change or reload is triggered, reset pagination and fetch page 1
   useEffect(() => {
     activeControllerRef.current?.abort();
     const controller = new AbortController();
@@ -69,7 +83,7 @@ export function useAssets(query: Omit<AssetQuery, 'cursor'>) {
     return () => {
       controller.abort();
     };
-  }, [queryKey]);
+  }, [queryKey, reloadTrigger]);
 
   // Load next page using cursor pagination
   const loadMore = useCallback(async () => {
@@ -150,6 +164,7 @@ export function useAssets(query: Omit<AssetQuery, 'cursor'>) {
     ...state,
     hasMore: Boolean(state.nextCursor),
     loadMore,
+    reload,
     applyOptimisticStatus,
     updateAssetInList,
   };
