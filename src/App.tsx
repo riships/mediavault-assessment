@@ -229,6 +229,11 @@ export function App() {
       } else {
         setNotice(`All ${result.applied} assets successfully updated to ${statusLabel(next).toLowerCase()}.`);
       }
+
+      // If status filter is applied, reload data so assets that no longer match the filter drop off
+      if (status.length > 0) {
+        reload();
+      }
     } catch (err) {
       // Outright network failure: rollback all
       rollback(ids);
