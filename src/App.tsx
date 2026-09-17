@@ -4,6 +4,7 @@ import { AssetDetail } from '@/features/assets/AssetDetail';
 import { AssetGrid } from '@/features/assets/AssetGrid';
 import { useAssets } from '@/features/assets/useAssets';
 import { statusLabel } from '@/lib/format';
+import { useDebounce } from '@/lib/useDebounce';
 import type { Asset, AssetStatus, AssetQuery } from '@/lib/types';
 
 const STATUSES: AssetStatus[] = ['draft', 'in_review', 'approved', 'archived'];
@@ -16,14 +17,20 @@ const SORTS: Array<{ value: NonNullable<AssetQuery['sort']>; label: string }> = 
 
 export function App() {
   const [q, setQ] = useState('');
+  const debouncedQ = useDebounce(q, 300);
   const [status, setStatus] = useState<AssetStatus[]>([]);
   const [sort, setSort] = useState<NonNullable<AssetQuery['sort']>>('updatedAt:desc');
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const [activeId, setActiveId] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
 
-  // Every keystroke sends a request. Nothing is debounced or cancelled.
-  const { items, total, loading, error } = useAssets({ q, status, sort, limit: 24 });
+  // 300ms debounce buffer prevents keystroke flooding and rate limit exhaustion
+  const { items, total, loading, error } = useAssets({
+    q: debouncedQ.trim() || undefined,
+    status,
+    sort,
+    limit: 24,
+  });
 
   function toggleSelect(id: string) {
     setSelectedIds((prev) => {
