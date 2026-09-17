@@ -39,7 +39,7 @@ export function App() {
     if (ids.length === 0) return;
     setNotice(null);
     try {
-      // Sends every selected id in one call, which the API refuses above 50.
+      // Batch chunked in client.ts (<= 50 IDs per request) to comply with server limits.
       const result = await bulkSetStatus(ids, next);
       setNotice(`${result.applied} updated, ${result.failed} failed.`);
       setSelectedIds(new Set());

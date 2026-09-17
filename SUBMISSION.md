@@ -26,7 +26,7 @@ Roughly, and how you split it.
 
 | # | Defect | Where | Fixed / left / out of scope |
 | --- | --- | --- | --- |
-| 1 | Bulk update sends >50 ids in one call | `App.tsx` | |
+| 1 | Bulk update sends >50 ids in one call, rejected by API with 400 `too_many_ids` | `client.ts`, `App.tsx` | Fixed (chunked into batches of <= 50 with bounded concurrency) |
 | 2 | | | |
 
 ---

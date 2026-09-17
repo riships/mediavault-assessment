@@ -25,6 +25,25 @@ function toSearchParams(query: AssetQuery): string {
   return params.toString();
 }
 
+async function runWithConcurrency<T, R>(
+  items: T[],
+  concurrency: number,
+  fn: (item: T) => Promise<R>,
+): Promise<R[]> {
+  const results: R[] = new Array(items.length);
+  let nextIndex = 0;
+
+  const workers = Array.from({ length: Math.min(concurrency, items.length) }, async () => {
+    while (nextIndex < items.length) {
+      const currentIndex = nextIndex++;
+      results[currentIndex] = await fn(items[currentIndex]!);
+    }
+  });
+
+  await Promise.all(workers);
+  return results;
+}
+
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
   const res = await fetch(path, {
     ...init,
@@ -67,12 +86,43 @@ export function updateAsset(
   });
 }
 
-export function bulkSetStatus(ids: string[], status: Asset['status']): Promise<BulkResult> {
-  // Note: the endpoint rejects more than 50 ids per call.
-  return request<BulkResult>('/api/assets/bulk-status', {
-    method: 'POST',
-    body: JSON.stringify({ ids, status }),
-  });
+export async function bulkSetStatus(
+  ids: string[],
+  status: Asset['status'],
+  concurrency = 3,
+): Promise<BulkResult> {
+  if (ids.length === 0) {
+    return { results: [], applied: 0, failed: 0 };
+  }
+
+  const BATCH_SIZE = 50;
+  if (ids.length <= BATCH_SIZE) {
+    return request<BulkResult>('/api/assets/bulk-status', {
+      method: 'POST',
+      body: JSON.stringify({ ids, status }),
+    });
+  }
+
+  const chunks: string[][] = [];
+  for (let i = 0; i < ids.length; i += BATCH_SIZE) {
+    chunks.push(ids.slice(i, i + BATCH_SIZE));
+  }
+
+  const responses = await runWithConcurrency(chunks, concurrency, (batch) =>
+    request<BulkResult>('/api/assets/bulk-status', {
+      method: 'POST',
+      body: JSON.stringify({ ids: batch, status }),
+    }),
+  );
+
+  return responses.reduce<BulkResult>(
+    (acc, curr) => ({
+      results: [...acc.results, ...curr.results],
+      applied: acc.applied + curr.applied,
+      failed: acc.failed + curr.failed,
+    }),
+    { results: [], applied: 0, failed: 0 },
+  );
 }
 
 export const thumbnailUrl = (id: string) => `/api/thumb/${id}.svg`;
