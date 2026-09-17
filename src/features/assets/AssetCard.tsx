@@ -1,6 +1,7 @@
-﻿import React, { useState } from 'react';
+import React, { useState } from 'react';
 import { thumbnailUrl } from '@/api/client';
 import { formatBytes, formatDate, statusLabel } from '@/lib/format';
+import { isThumbnailFailed, markThumbnailFailed } from '@/lib/thumbnailCache';
 import type { Asset } from '@/lib/types';
 
 interface AssetCardProps {
@@ -41,10 +42,10 @@ export const AssetCard = React.memo(function AssetCard({
   onToggleSelect,
   onOpen,
 }: AssetCardProps) {
-  const [imgError, setImgError] = useState(false);
+  const [imgError, setImgError] = useState(() => isThumbnailFailed(asset.id));
 
-  // If asset has no thumbnail flag or image failed with 404, render stable placeholder
-  const showPlaceholder = !asset.hasThumbnail || imgError;
+  // If asset has no thumbnail flag or image previously failed, render stable placeholder
+  const showPlaceholder = !asset.hasThumbnail || isThumbnailFailed(asset.id) || imgError;
 
   return (
     <div
@@ -97,7 +98,10 @@ export const AssetCard = React.memo(function AssetCard({
             alt=""
             loading="lazy"
             aria-hidden="true"
-            onError={() => setImgError(true)}
+            onError={() => {
+              markThumbnailFailed(asset.id);
+              setImgError(true);
+            }}
           />
         )}
       </div>

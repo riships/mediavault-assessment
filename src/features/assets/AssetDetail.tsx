@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { ApiError, getAsset, thumbnailUrl, updateAsset } from '@/api/client';
 import { formatBytes, formatDate, formatDuration, statusLabel, statusSymbol } from '@/lib/format';
+import { isThumbnailFailed, markThumbnailFailed } from '@/lib/thumbnailCache';
 import type { Asset, AssetStatus } from '@/lib/types';
 
 const STATUSES: AssetStatus[] = ['draft', 'in_review', 'approved', 'archived'];
@@ -12,10 +13,12 @@ interface Props {
 }
 
 function DetailThumbnail({ asset }: { asset: Asset }) {
-  const [imgFailed, setImgFailed] = useState(!asset.hasThumbnail);
+  const [imgFailed, setImgFailed] = useState(
+    !asset.hasThumbnail || isThumbnailFailed(asset.id),
+  );
 
   useEffect(() => {
-    setImgFailed(!asset.hasThumbnail);
+    setImgFailed(!asset.hasThumbnail || isThumbnailFailed(asset.id));
   }, [asset.id, asset.hasThumbnail]);
 
   if (imgFailed) {
@@ -45,14 +48,18 @@ function DetailThumbnail({ asset }: { asset: Asset }) {
       className="panel__thumb"
       src={thumbnailUrl(asset.id)}
       alt=""
-      onError={() => setImgFailed(true)}
+      onError={() => {
+        markThumbnailFailed(asset.id);
+        setImgFailed(true);
+      }}
     />
   );
 }
 
 /**
  * Detail panel with focus management, Escape key support,
- * conflict detection (409), and fresh version reload.
+ * conflict detection (409), race-condition prevention via AbortController,
+ * and fresh version reload.
  */
 export function AssetDetail({ id, onClose, onSaved }: Props) {
   const [asset, setAsset] = useState<Asset | null>(null);
@@ -60,6 +67,7 @@ export function AssetDetail({ id, onClose, onSaved }: Props) {
   const [saving, setSaving] = useState(false);
 
   const closeButtonRef = useRef<HTMLButtonElement>(null);
+  const activeControllerRef = useRef<AbortController | null>(null);
 
   // Move focus into the drawer on open, and close on Escape
   useEffect(() => {
@@ -76,23 +84,42 @@ export function AssetDetail({ id, onClose, onSaved }: Props) {
     return () => window.removeEventListener('keydown', handleKeyDown);
   }, [onClose]);
 
-  const loadAsset = () => {
+  const loadAsset = (signal?: AbortSignal) => {
     setAsset(null);
     setError(null);
-    getAsset(id)
+    getAsset(id, { signal })
       .then(setAsset)
-      .catch((err: unknown) => setError(err instanceof Error ? err.message : 'Load failed'));
+      .catch((err: unknown) => {
+        if (
+          (err instanceof DOMException && err.name === 'AbortError') ||
+          (err instanceof Error && err.name === 'AbortError')
+        ) {
+          return;
+        }
+        setError(err instanceof Error ? err.message : 'Load failed');
+      });
   };
 
   useEffect(() => {
-    loadAsset();
+    activeControllerRef.current?.abort();
+    const controller = new AbortController();
+    activeControllerRef.current = controller;
+
+    loadAsset(controller.signal);
+
+    return () => {
+      controller.abort();
+    };
   }, [id]);
 
   // Auto-recover when network reconnects
   useEffect(() => {
     const handleOnline = () => {
       if (!asset) {
-        loadAsset();
+        activeControllerRef.current?.abort();
+        const controller = new AbortController();
+        activeControllerRef.current = controller;
+        loadAsset(controller.signal);
       }
     };
     window.addEventListener('online', handleOnline);
@@ -141,7 +168,15 @@ export function AssetDetail({ id, onClose, onSaved }: Props) {
       {error && (
         <div className="error" role="alert" style={{ margin: '8px 16px' }}>
           <span>{error}</span>
-          <button type="button" onClick={loadAsset}>
+          <button
+            type="button"
+            onClick={() => {
+              activeControllerRef.current?.abort();
+              const controller = new AbortController();
+              activeControllerRef.current = controller;
+              loadAsset(controller.signal);
+            }}
+          >
             Retry
           </button>
         </div>

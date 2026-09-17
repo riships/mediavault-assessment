@@ -222,8 +222,8 @@ export function listAssets(query: AssetQuery, init?: RequestInit): Promise<Asset
   return request<AssetPage>(`/api/assets?${toSearchParams(query)}`, init);
 }
 
-export function getAsset(id: string): Promise<Asset> {
-  return request<Asset>(`/api/assets/${id}`);
+export function getAsset(id: string, init?: RequestInit): Promise<Asset> {
+  return request<Asset>(`/api/assets/${id}`, init);
 }
 
 export function getAssetsByIds(ids: string[]): Promise<{ items: Asset[]; missing: string[] }> {
