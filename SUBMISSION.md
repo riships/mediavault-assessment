@@ -28,7 +28,8 @@ Roughly, and how you split it.
 | --- | --- | --- | --- |
 | 1 | Bulk update sends >50 ids in one call, rejected by API with 400 `too_many_ids` | `client.ts`, `App.tsx` | Fixed (chunked into batches of <= 50 with bounded concurrency) |
 | 2 | Search input fires on every keystroke without debouncing, easily tripping the 80 req / 10s rate limit | `App.tsx`, `useDebounce.ts` | Fixed (300ms debounce via `useDebounce`) |
-| 3 | | | |
+| 3 | Out-of-order API responses cause race conditions where slower short-prefix responses overwrite newer search results | `useAssets.ts`, `client.ts` | Fixed (`AbortController` signal passed and aborted on query change) |
+| 4 | | | |
 
 ---
 

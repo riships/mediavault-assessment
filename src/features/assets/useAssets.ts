@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { listAssets } from '@/api/client';
 import type { Asset, AssetQuery } from '@/lib/types';
 
@@ -23,9 +23,15 @@ export function useAssets(query: AssetQuery) {
     error: null,
   });
 
+  const activeControllerRef = useRef<AbortController | null>(null);
+
   useEffect(() => {
+    activeControllerRef.current?.abort();
+    const controller = new AbortController();
+    activeControllerRef.current = controller;
+
     setState((s) => ({ ...s, loading: true, error: null }));
-    listAssets(query)
+    listAssets(query, { signal: controller.signal })
       .then((page) => {
         setState({
           items: page.items,
@@ -36,12 +42,22 @@ export function useAssets(query: AssetQuery) {
         });
       })
       .catch((err: unknown) => {
+        if (
+          (err instanceof DOMException && err.name === 'AbortError') ||
+          (err instanceof Error && err.name === 'AbortError')
+        ) {
+          return;
+        }
         setState((s) => ({
           ...s,
           loading: false,
           error: err instanceof Error ? err.message : 'Something went wrong',
         }));
       });
+
+    return () => {
+      controller.abort();
+    };
   }, [JSON.stringify(query)]);
 
   return state;
