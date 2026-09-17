@@ -1,4 +1,4 @@
-﻿import { useCallback, useState } from 'react';
+﻿import { useCallback, useEffect, useRef, useState } from 'react';
 import { bulkSetStatus } from '@/api/client';
 import { AssetDetail } from '@/features/assets/AssetDetail';
 import { AssetGrid } from '@/features/assets/AssetGrid';
@@ -15,11 +15,34 @@ const SORTS: Array<{ value: NonNullable<AssetQuery['sort']>; label: string }> = 
   { value: 'createdAt:desc', label: 'Newest' },
 ];
 
+/**
+ * Parse URL search parameters on initial load to restore view state.
+ */
+function getInitialUrlParams() {
+  if (typeof window === 'undefined') {
+    return {
+      q: '',
+      status: [] as AssetStatus[],
+      sort: 'updatedAt:desc' as NonNullable<AssetQuery['sort']>,
+    };
+  }
+  const sp = new URLSearchParams(window.location.search);
+  const q = sp.get('q') ?? '';
+  const rawStatuses = sp.getAll('status').flatMap((s) => s.split(',')).filter(Boolean);
+  const validStatuses = rawStatuses.filter((s): s is AssetStatus =>
+    STATUSES.includes(s as AssetStatus),
+  );
+  const sortParam = sp.get('sort') as NonNullable<AssetQuery['sort']>;
+  const validSort = SORTS.some((s) => s.value === sortParam) ? sortParam : 'updatedAt:desc';
+  return { q, status: validStatuses, sort: validSort };
+}
+
 export function App() {
-  const [searchInput, setSearchInput] = useState('');
+  const initialParams = useRef(getInitialUrlParams()).current;
+  const [searchInput, setSearchInput] = useState(initialParams.q);
   const debouncedQ = useDebounce(searchInput, 300);
-  const [status, setStatus] = useState<AssetStatus[]>([]);
-  const [sort, setSort] = useState<NonNullable<AssetQuery['sort']>>('updatedAt:desc');
+  const [status, setStatus] = useState<AssetStatus[]>(initialParams.status);
+  const [sort, setSort] = useState<NonNullable<AssetQuery['sort']>>(initialParams.sort);
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const [activeId, setActiveId] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
@@ -31,6 +54,33 @@ export function App() {
     sort,
     limit: 48,
   });
+
+  // Synchronize state to URL using replaceState (avoids creating 1 history entry per keystroke)
+  useEffect(() => {
+    const sp = new URLSearchParams();
+    if (debouncedQ.trim()) sp.set('q', debouncedQ.trim());
+    if (status.length > 0) sp.set('status', status.join(','));
+    if (sort !== 'updatedAt:desc') sp.set('sort', sort);
+
+    const queryStr = sp.toString();
+    const targetUrl = queryStr ? `${window.location.pathname}?${queryStr}` : window.location.pathname;
+    const currentSearch = window.location.search ? window.location.search.slice(1) : '';
+    if (currentSearch !== queryStr) {
+      window.history.replaceState(null, '', targetUrl);
+    }
+  }, [debouncedQ, status, sort]);
+
+  // Support browser Back/Forward buttons via popstate
+  useEffect(() => {
+    const handlePopState = () => {
+      const { q, status: newStatus, sort: newSort } = getInitialUrlParams();
+      setSearchInput(q);
+      setStatus(newStatus);
+      setSort(newSort);
+    };
+    window.addEventListener('popstate', handlePopState);
+    return () => window.removeEventListener('popstate', handlePopState);
+  }, []);
 
   const toggleSelect = useCallback((id: string) => {
     setSelectedIds((prev) => {

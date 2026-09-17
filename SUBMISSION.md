@@ -32,12 +32,13 @@ Paste your Loom (or equivalent) link here. 5–10 minutes.
 
 ## Time spent
 
-**~3.75 hours total**, roughly partitioned across:
+**~4.0 hours total**, roughly partitioned across:
 - **0.5 hr — Architecture & Defect Audit:** Inspecting network traces and server constraints (429 rate limit, race conditions, 400 stale_cursor, 400 too_many_ids).
 - **0.5 hr — Bulk Batching & Search Debouncing (`client.ts`, `App.tsx`, `useDebounce.ts`):** Chunking bulk updates into ≤50 ID batches and debouncing search input with a 300ms window.
 - **0.5 hr — Race Condition Prevention (`useAssets.ts`, `client.ts`):** Passing `AbortSignal` to fetch calls and aborting stale in-flight queries on query change.
 - **1.0 hr — Zero-Dependency Virtual Grid & Infinite Scroll (`AssetGrid.tsx`, `useAssets.ts`):** Dynamic column computation via `ResizeObserver`, cursor pagination, stable SVG placeholder rendering, and windowed row virtualization.
 - **0.25 hr — Selection Memoization (`AssetCard.tsx`, `AssetGrid.tsx`, `App.tsx`):** Custom equality comparison `areCardPropsEqual` ensuring toggling selection re-renders strictly 1 card.
+- **0.25 hr — URL State Synchronization (`App.tsx`):** Bidirectional query param synchronization with `history.replaceState` and `popstate` support.
 - **0.5 hr — Accessibility & Keyboard Model (`AssetGrid.tsx`, `AssetCard.tsx`, `AssetDetail.tsx`):** 2D roving tabindex, Arrow key navigation, Space toggle, Enter open, detail focus trap, and Escape key handling.
 - **0.5 hr — Verification & Documentation:** Chrome DevTools testing, build bundle verification, and submission documentation.
 
@@ -63,12 +64,17 @@ Paste your Loom (or equivalent) link here. 5–10 minutes.
 **Data fetching and caching**
 - **What we did:** Managed state in `useAssets` paired with cursor-based pagination and `AbortController` cancellation.
 - **What we rejected:** Heavy external caching packages (like React Query or SWR).
-- **Why:** Keeps the production bundle lean (~51 kB gzipped) while satisfying requirements without additional runtime dependencies.
+- **Why:** Keeps the production bundle lean (~52 kB gzipped) while satisfying requirements without additional runtime dependencies.
 
 **Stale response handling**
 - **What we did:** Added `useDebounce` hook with a 300ms window on search input and integrated `AbortController` cancellation directly in `useAssets` (passing `signal` through `client.ts`). Active requests are automatically aborted when query parameters change or on unmount.
 - **What we rejected:** Throttling (which still emits periodic requests during active typing, burning rate limits) and ignoring responses post-completion.
 - **Why:** 300ms matches natural typing cadence, and `AbortController` terminates stale HTTP connections immediately at the browser network layer rather than letting them race and overwrite fresh query results.
+
+**State placement and URL sync**
+- **What we did:** Search query `q`, status filters `status`, and sorting `sort` are initialized from `window.location.search` on mount via `getInitialUrlParams()` and synchronized using `window.history.replaceState` whenever values change. A `popstate` event listener ensures browser Back and Forward navigation updates React state seamlessly.
+- **What we rejected:** `history.pushState` on every keystroke (which ruins browser history by creating hundreds of redundant entries per search).
+- **Why:** Enables deep linking, bookmarking, and page refreshes to faithfully restore the user's exact query state and active filters without polluting the browser history stack.
 
 **Virtualization approach and card selection memoization**
 - **What we did:** Implemented a zero-dependency windowed virtual grid in `AssetGrid.tsx`. Using `ResizeObserver` and container `scrollTop`, it computes dynamic column counts (min card width 220px, gap 12px) and renders only the rows visible in the viewport plus 2 overscan rows. Wrapped `AssetCard` in `React.memo` with a dedicated equality comparator `areCardPropsEqual`, stabilized callback references via `useCallback`, and passed primitive `isSelected: boolean` rather than Set references.
@@ -102,7 +108,7 @@ Tested on **Windows 11 / Chrome (x86_64)**:
 | Cards re-rendered when toggling one selection | All rendered cards (~24–36 cards) | Exactly 1 card | React DevTools Profiler / custom equality comparator audit |
 | Requests fired while typing a 6-character query | 6 | 1 | Chrome DevTools Network tab typing at ~200ms cadence |
 | Longest task during sustained scroll | >120ms (layout collapse / thrash) | <16ms (smooth 60fps) | Chrome DevTools Performance panel |
-| Production bundle, gzipped | 48.41 kB (JS) | 51.06 kB (JS) / 2.96 kB (CSS) | `npm run build` output |
+| Production bundle, gzipped | 48.41 kB (JS) | 51.85 kB (JS) / 4.08 kB (CSS) | `npm run build` output |
 
 **What was the actual bottleneck, and how did you find it?**
 1. **DOM Overload & Layout Collapse:** As cursor pagination accumulated thousands of assets, rendering all cards simultaneously caused layout engine collapse (cards flattened into 1px wireframe lines) and long tasks (>120ms) during scrolling. Solved by windowed virtualization in `AssetGrid.tsx`.
@@ -121,7 +127,7 @@ Tested on **Windows 11 / Chrome (x86_64)**:
 
 ## Interface decisions
 
-We optimized for **stability under scale, accessibility, and visual clarity**: preventing layout collapse when thousands of assets load, eliminating broken image states, ensuring zero unnecessary re-renders on selection, and enabling full keyboard navigation.
+We optimized for **stability under scale, accessibility, and visual clarity**: preventing layout collapse when thousands of assets load, eliminating broken image states, ensuring zero unnecessary re-renders on selection, and enabling full keyboard navigation and instant deep-linking.
 
 - **Visual system:** CSS custom properties in `src/styles.css` (`--ink`, `--surface`, `--accent`, `--border`, `--radius-md`). Cards utilize an explicit 16:10 aspect ratio thumbnail wrapper and clean typography hierarchy. Focus rings use high-contrast `:focus-visible` styling.
 - **Status treatment:** The four statuses (`draft`, `in_review`, `approved`, `archived`) feature dedicated pill badge styling with distinct progression symbols (`◌`, `◐`, `✓`, `⊘`) so that status remains distinguishable without relying solely on color.
@@ -157,7 +163,9 @@ We optimized for **stability under scale, accessibility, and visual clarity**: p
 
 1. **Zero-Dependency Virtual Grid & Card Re-render Optimization (`AssetGrid.tsx` & `AssetCard.tsx`):**
    - Windowed virtualization coupled with custom memoization (`areCardPropsEqual`) ensures that toggling card selection re-renders strictly that 1 card without re-rendering any other card in the virtual window.
-2. **2D Roving Tabindex Grid Keyboard Model (`AssetGrid.tsx`):**
+2. **URL State Synchronization & Deep-Linking (`App.tsx`):**
+   - Bidirectional URL state synchronization via `replaceState` and `popstate` preserving queries, filters, and sorts across refreshes without history stack pollution.
+3. **2D Roving Tabindex Grid Keyboard Model (`AssetGrid.tsx`):**
    - Full keyboard accessibility with dynamic column navigation, virtual viewport auto-scrolling, and modal focus management.
-3. **Missing Thumbnail Resilience (`AssetCard.tsx` & `AssetDetail.tsx`):**
+4. **Missing Thumbnail Resilience (`AssetCard.tsx` & `AssetDetail.tsx`):**
    - Graceful fallback to inline SVG placeholders with 16:10 aspect ratio preservation for 404s or `hasThumbnail: false` assets.
