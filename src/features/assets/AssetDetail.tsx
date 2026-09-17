@@ -11,10 +11,45 @@ interface Props {
   onSaved: (asset: Asset) => void;
 }
 
-/**
- * Baseline detail panel. Loads on open, saves with no optimistic update,
- * surfaces failures as raw strings, and does nothing about focus.
- */
+function DetailThumbnail({ asset }: { asset: Asset }) {
+  const [imgFailed, setImgFailed] = useState(!asset.hasThumbnail);
+
+  useEffect(() => {
+    setImgFailed(!asset.hasThumbnail);
+  }, [asset.id, asset.hasThumbnail]);
+
+  if (imgFailed) {
+    return (
+      <div className="panel__thumb panel__thumb-placeholder" aria-label="Thumbnail unavailable">
+        <svg
+          className="card__placeholder-icon"
+          viewBox="0 0 24 24"
+          fill="none"
+          stroke="currentColor"
+          strokeWidth="1.5"
+          strokeLinecap="round"
+          strokeLinejoin="round"
+          aria-hidden="true"
+        >
+          <rect width="18" height="18" x="3" y="3" rx="2" ry="2" />
+          <circle cx="9" cy="9" r="2" />
+          <path d="m21 15-3.086-3.086a2 2 0 0 0-2.828 0L6 21" />
+        </svg>
+        <span className="card__placeholder-text">No preview</span>
+      </div>
+    );
+  }
+
+  return (
+    <img
+      className="panel__thumb"
+      src={thumbnailUrl(asset.id)}
+      alt=""
+      onError={() => setImgFailed(true)}
+    />
+  );
+}
+
 export function AssetDetail({ id, onClose, onSaved }: Props) {
   const [asset, setAsset] = useState<Asset | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -55,7 +90,7 @@ export function AssetDetail({ id, onClose, onSaved }: Props) {
 
       {asset && (
         <div className="panel__body">
-          <img className="panel__thumb" src={thumbnailUrl(asset.id)} alt="" />
+          <DetailThumbnail asset={asset} />
           <h3>{asset.name}</h3>
           <dl className="facts">
             <dt>Id</dt>

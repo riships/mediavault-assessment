@@ -25,11 +25,11 @@ export function App() {
   const [notice, setNotice] = useState<string | null>(null);
 
   // 300ms debounce buffer prevents keystroke flooding and rate limit exhaustion
-  const { items, total, loading, error } = useAssets({
+  const { items, total, loading, loadingMore, hasMore, loadMore, error } = useAssets({
     q: debouncedQ.trim() || undefined,
     status,
     sort,
-    limit: 24,
+    limit: 48,
   });
 
   function toggleSelect(id: string) {
@@ -119,6 +119,9 @@ export function App() {
           assets={items}
           selectedIds={selectedIds}
           activeId={activeId}
+          hasMore={hasMore}
+          loadingMore={loadingMore}
+          onLoadMore={loadMore}
           onToggleSelect={toggleSelect}
           onOpen={setActiveId}
         />
