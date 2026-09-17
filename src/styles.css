@@ -64,12 +64,13 @@ button {
   border: 1px solid var(--border-strong);
   border-radius: var(--radius-sm);
   background: var(--surface);
+  color: var(--ink);
   cursor: pointer;
   font-weight: 500;
   font-size: 13px;
-  transition: background-color 0.12s ease, border-color 0.12s ease;
+  transition: background-color 0.12s ease, border-color 0.12s ease, color 0.12s ease;
 }
-button:hover:not(:disabled) {
+:where(button):hover:not(:disabled) {
   background: var(--surface-hover);
   border-color: var(--ink-soft);
 }
@@ -229,10 +230,10 @@ button:disabled {
 .status-pills {
   display: flex;
   align-items: center;
-  gap: 4px;
+  gap: 3px;
   background: var(--surface-subtle);
-  padding: 3px 4px;
-  border-radius: var(--radius-md);
+  padding: 3px;
+  border-radius: 9999px;
   border: 1px solid var(--border);
 }
 
@@ -240,7 +241,7 @@ button:disabled {
   display: inline-flex;
   align-items: center;
   gap: 5px;
-  padding: 5px 11px;
+  padding: 4px 10px;
   border-radius: 9999px;
   border: 1px solid transparent;
   background: transparent;
@@ -248,26 +249,70 @@ button:disabled {
   font-size: 12px;
   font-weight: 500;
   cursor: pointer;
-  transition: all 0.15s ease;
+  transition: all 0.15s cubic-bezier(0.4, 0, 0.2, 1);
   user-select: none;
 }
-
-.filter-pill:hover:not(.is-active) {
-  background: var(--surface-hover);
-  color: var(--ink);
+.filter-pill:active {
+  transform: scale(0.96);
 }
 
 .filter-pill__symbol {
   font-size: 11px;
+  transition: transform 0.15s ease;
+}
+
+/* Semantic symbol colors */
+.filter-pill--draft .filter-pill__symbol {
+  color: #64748b;
+}
+.filter-pill--in_review .filter-pill__symbol {
+  color: #d97706;
+}
+.filter-pill--approved .filter-pill__symbol {
+  color: #059669;
+  font-weight: 700;
+}
+.filter-pill--archived .filter-pill__symbol {
+  color: #64748b;
+}
+
+/* Inactive Pill Hover States (Semantic Tint & Border) */
+.filter-pill--draft:hover:not(.is-active) {
+  background: var(--surface);
+  border-color: #cbd5e1;
+  color: #0f172a;
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.05);
+}
+.filter-pill--in_review:hover:not(.is-active) {
+  background: #fffbeb;
+  border-color: #fcd34d;
+  color: #92400e;
+  box-shadow: 0 1px 2px rgba(245, 158, 11, 0.08);
+}
+.filter-pill--approved:hover:not(.is-active) {
+  background: #f0fdf4;
+  border-color: #86efac;
+  color: #166534;
+  box-shadow: 0 1px 2px rgba(16, 185, 129, 0.08);
+}
+.filter-pill--archived:hover:not(.is-active) {
+  background: var(--surface);
+  border-color: #cbd5e1;
+  color: #334155;
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.05);
 }
 
 /* Active Status Filter Pills */
 .filter-pill--draft.is-active {
-  background: #f3f4f6;
-  border-color: #94a3b8;
-  color: #1e293b;
+  background: var(--surface);
+  border-color: #1e293b;
+  color: #0f172a;
   font-weight: 600;
-  box-shadow: var(--shadow-sm);
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
+}
+.filter-pill--draft.is-active:hover {
+  background: #f8fafc;
+  border-color: #0f172a;
 }
 
 .filter-pill--in_review.is-active {
@@ -275,7 +320,11 @@ button:disabled {
   border-color: #f59e0b;
   color: #78350f;
   font-weight: 600;
-  box-shadow: var(--shadow-sm);
+  box-shadow: 0 1px 3px rgba(245, 158, 11, 0.2);
+}
+.filter-pill--in_review.is-active:hover {
+  background: #fde68a;
+  border-color: #d97706;
 }
 
 .filter-pill--approved.is-active {
@@ -283,15 +332,23 @@ button:disabled {
   border-color: #10b981;
   color: #064e3b;
   font-weight: 600;
-  box-shadow: var(--shadow-sm);
+  box-shadow: 0 1px 3px rgba(16, 185, 129, 0.2);
+}
+.filter-pill--approved.is-active:hover {
+  background: #d1fae5;
+  border-color: #059669;
 }
 
 .filter-pill--archived.is-active {
   background: #f1f5f9;
   border-color: #64748b;
-  color: #334155;
+  color: #1e293b;
   font-weight: 600;
-  box-shadow: var(--shadow-sm);
+  box-shadow: 0 1px 3px rgba(100, 116, 139, 0.15);
+}
+.filter-pill--archived.is-active:hover {
+  background: #e2e8f0;
+  border-color: #475569;
 }
 
 /* Sort Dropdown */
@@ -406,7 +463,8 @@ button:disabled {
 }
 .bulk-btn--draft:hover {
   background: #334155;
-  border-color: #64748b;
+  border-color: #94a3b8;
+  color: #ffffff;
 }
 
 .bulk-btn--in_review {
@@ -415,8 +473,9 @@ button:disabled {
   border: 1px solid rgba(245, 158, 11, 0.4);
 }
 .bulk-btn--in_review:hover {
-  background: rgba(245, 158, 11, 0.28);
+  background: rgba(245, 158, 11, 0.3);
   border-color: #f59e0b;
+  color: #ffffff;
 }
 
 .bulk-btn--approved {
@@ -425,8 +484,9 @@ button:disabled {
   border: 1px solid rgba(16, 185, 129, 0.4);
 }
 .bulk-btn--approved:hover {
-  background: rgba(16, 185, 129, 0.28);
+  background: rgba(16, 185, 129, 0.3);
   border-color: #10b981;
+  color: #ffffff;
 }
 
 .bulk-btn--archived {
@@ -436,8 +496,8 @@ button:disabled {
 }
 .bulk-btn--archived:hover {
   background: #334155;
-  color: #cbd5e1;
-  border-color: #475569;
+  color: #ffffff;
+  border-color: #64748b;
 }
 
 .bulk-bar__divider {
@@ -453,9 +513,9 @@ button:disabled {
   border: 1px solid #334155;
 }
 .bulk-btn--clear:hover {
-  background: rgba(255, 255, 255, 0.08);
+  background: rgba(255, 255, 255, 0.1);
   color: #ffffff;
-  border-color: #475569;
+  border-color: #64748b;
 }
 
 /* Notification & Error Banners */
@@ -478,12 +538,16 @@ button:disabled {
 .notice button {
   padding: 3px 10px;
   font-size: 12px;
-  border-color: #3b82f6;
+  border: 1px solid #3b82f6;
   color: #1e40af;
   background: #ffffff;
+  cursor: pointer;
+  transition: all 0.12s ease;
 }
 .notice button:hover {
   background: #dbeafe;
+  border-color: #2563eb;
+  color: #1d4ed8;
 }
 .notice__actions {
   display: flex;
@@ -503,12 +567,16 @@ button:disabled {
 .error button {
   padding: 3px 10px;
   font-size: 12px;
-  border-color: #ef4444;
+  border: 1px solid #ef4444;
   color: #991b1b;
   background: #ffffff;
+  cursor: pointer;
+  transition: all 0.12s ease;
 }
 .error button:hover {
   background: #fee2e2;
+  border-color: #dc2626;
+  color: #7f1d1d;
 }
 
 .offline-banner {
@@ -694,6 +762,7 @@ button:disabled {
   height: 100%;
   box-shadow: var(--shadow-sm);
   transition: border-color 0.15s ease, box-shadow 0.15s ease;
+  user-select: none;
 }
 .card:hover {
   border-color: var(--border-strong);
@@ -1134,6 +1203,11 @@ button:disabled {
   color: var(--ink);
   box-shadow: inset 0 0 0 1px var(--ink);
 }
+.status-btn.is-current:hover:not(:disabled) {
+  background: var(--surface-subtle);
+  border-color: var(--ink);
+  color: var(--ink);
+}
 
 .status-btn__badge {
   font-size: 9px;
@@ -1155,7 +1229,7 @@ button:disabled {
   padding: 4px 10px;
 }
 .bulk-btn--select-all:hover {
-  background: rgba(255, 255, 255, 0.16);
+  background: rgba(255, 255, 255, 0.18);
   border-color: #64748b;
   color: #ffffff;
 }
@@ -1174,4 +1248,6 @@ button:disabled {
 }
 .notice__retry-btn:hover {
   background: #1d4ed8;
+  border-color: #1e40af;
+  color: #ffffff;
 }

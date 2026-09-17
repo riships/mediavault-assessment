@@ -53,7 +53,8 @@ export function App() {
     status: AssetStatus;
   } | null>(null);
 
-  const lastSelectedIdRef = useRef<string | null>(null);
+  const anchorIdRef = useRef<string | null>(null);
+  const baseSelectionRef = useRef<Set<string>>(new Set());
   const isOnline = useOnlineStatus();
   const wasOfflineRef = useRef(false);
 
@@ -75,6 +76,12 @@ export function App() {
     sort,
     limit: 48,
   });
+
+  // Reset range anchor and base selection when query, status, or sorting changes
+  useEffect(() => {
+    anchorIdRef.current = null;
+    baseSelectionRef.current = new Set();
+  }, [debouncedQ, status, sort]);
 
   // Track transition from offline to online and notify user of sync
   useEffect(() => {
@@ -113,43 +120,66 @@ export function App() {
     return () => window.removeEventListener('popstate', handlePopState);
   }, []);
 
-  // Range selection (click and Shift+Click)
+  // Handler for opening an asset detail panel; also sets range anchor
+  const handleOpenAsset = useCallback((id: string) => {
+    setActiveId(id);
+    anchorIdRef.current = id;
+  }, []);
+
+  // Range selection (click and Shift+Click) with anchor retention and range expansion/contraction
   const toggleSelect = useCallback(
     (id: string, shiftKey?: boolean) => {
       setSelectedIds((prev) => {
-        const next = new Set(prev);
+        const currentIdx = items.findIndex((a) => a.id === id);
+        if (currentIdx === -1) return prev;
 
-        if (shiftKey && lastSelectedIdRef.current) {
-          const lastIdx = items.findIndex((a) => a.id === lastSelectedIdRef.current);
-          const currentIdx = items.findIndex((a) => a.id === id);
-          if (lastIdx !== -1 && currentIdx !== -1) {
-            const start = Math.min(lastIdx, currentIdx);
-            const end = Math.max(lastIdx, currentIdx);
-            for (let i = start; i <= end; i++) {
-              const item = items[i];
-              if (item) next.add(item.id);
-            }
-            lastSelectedIdRef.current = id;
-            return next;
-          }
+        // Clear accidental browser text selection during rapid shift-clicks
+        if (shiftKey && window.getSelection) {
+          window.getSelection()?.removeAllRanges();
         }
 
+        // Determine effective anchor: explicitly stored anchor -> active asset -> first selected asset in items
+        const rawAnchor = anchorIdRef.current ?? activeId;
+        const anchorIdx = rawAnchor ? items.findIndex((a) => a.id === rawAnchor) : -1;
+
+        if (shiftKey && anchorIdx !== -1) {
+          // Range selection: start from base snapshot (before shift was pressed) and add range
+          const next = new Set(baseSelectionRef.current);
+          const start = Math.min(anchorIdx, currentIdx);
+          const end = Math.max(anchorIdx, currentIdx);
+          for (let i = start; i <= end; i++) {
+            const item = items[i];
+            if (item) next.add(item.id);
+          }
+          // Preserve the original anchor pivot so subsequent Shift+Clicks expand/contract correctly
+          return next;
+        }
+
+        // Regular click/toggle: toggle target item, establish it as the new pivot anchor
+        const next = new Set(prev);
         if (next.has(id)) {
           next.delete(id);
-          lastSelectedIdRef.current = null;
         } else {
           next.add(id);
-          lastSelectedIdRef.current = id;
         }
+        anchorIdRef.current = id;
+        baseSelectionRef.current = new Set(next);
         return next;
       });
     },
-    [items],
+    [items, activeId],
   );
 
   const selectAllLoaded = useCallback(() => {
     setSelectedIds(new Set(items.map((a) => a.id)));
+    baseSelectionRef.current = new Set(items.map((a) => a.id));
   }, [items]);
+
+  const clearSelection = useCallback(() => {
+    setSelectedIds(new Set());
+    baseSelectionRef.current = new Set();
+    anchorIdRef.current = null;
+  }, []);
 
   // Optimistic bulk update with selective rollback on 207 Multi-Status
   async function applyBulkStatus(next: AssetStatus, targetIds?: string[]) {
@@ -165,6 +195,8 @@ export function App() {
     // Optimistically update grid state and obtain selective rollback callback
     const rollback = applyOptimisticStatus(ids, next);
     setSelectedIds(new Set());
+    baseSelectionRef.current = new Set();
+    anchorIdRef.current = null;
 
     try {
       // Chunked in client.ts (<= 50 IDs per request) with bounded concurrency = 3
@@ -354,7 +386,7 @@ export function App() {
             <button
               type="button"
               className="bulk-btn bulk-btn--clear"
-              onClick={() => setSelectedIds(new Set())}
+              onClick={clearSelection}
             >
               Clear selection
             </button>
@@ -401,7 +433,7 @@ export function App() {
             loadingMore={loadingMore}
             onLoadMore={loadMore}
             onToggleSelect={toggleSelect}
-            onOpen={setActiveId}
+            onOpen={handleOpenAsset}
           />
         </ErrorBoundary>
 
