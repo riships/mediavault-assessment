@@ -38,7 +38,6 @@ export function AssetGrid({
   onOpen,
 }: Props) {
   const containerRef = useRef<HTMLDivElement>(null);
-  const cardElementsRef = useRef<Map<string, HTMLDivElement>>(new Map());
 
   const [containerWidth, setContainerWidth] = useState(() =>
     typeof window !== 'undefined' ? window.innerWidth : 1200,
@@ -126,8 +125,10 @@ export function AssetGrid({
 
     // Set DOM focus on the active roving tabindex element if focus is within grid
     const targetAsset = assets[safeFocusedIndex];
-    if (targetAsset) {
-      const cardEl = cardElementsRef.current.get(targetAsset.id);
+    if (targetAsset && containerRef.current) {
+      const cardEl = containerRef.current.querySelector<HTMLDivElement>(
+        `[data-asset-id="${targetAsset.id}"]`
+      );
       cardEl?.focus();
     }
   }, [safeFocusedIndex, columns, rowHeight, cardHeight, assets]);
@@ -300,10 +301,6 @@ export function AssetGrid({
                 tabIndex={isCardFocused ? 0 : -1}
                 ariaPosInSet={globalIndex + 1}
                 ariaSetSize={assets.length}
-                cardRef={(node) => {
-                  if (node) cardElementsRef.current.set(asset.id, node);
-                  else cardElementsRef.current.delete(asset.id);
-                }}
                 onToggleSelect={onToggleSelect}
                 onOpen={onOpen}
               />

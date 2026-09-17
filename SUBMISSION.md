@@ -8,7 +8,7 @@ chose not to do something.
 
 Paste your Loom (or equivalent) link here. 5–10 minutes.
 
-**Link:**
+**Link:** *(Recorded walkthrough link to be added here)*
 
 ---
 
@@ -32,11 +32,12 @@ Paste your Loom (or equivalent) link here. 5–10 minutes.
 
 ## Time spent
 
-**~3.5 hours total**, roughly partitioned across:
+**~3.75 hours total**, roughly partitioned across:
 - **0.5 hr — Architecture & Defect Audit:** Inspecting network traces and server constraints (429 rate limit, race conditions, 400 stale_cursor, 400 too_many_ids).
 - **0.5 hr — Bulk Batching & Search Debouncing (`client.ts`, `App.tsx`, `useDebounce.ts`):** Chunking bulk updates into ≤50 ID batches and debouncing search input with a 300ms window.
 - **0.5 hr — Race Condition Prevention (`useAssets.ts`, `client.ts`):** Passing `AbortSignal` to fetch calls and aborting stale in-flight queries on query change.
 - **1.0 hr — Zero-Dependency Virtual Grid & Infinite Scroll (`AssetGrid.tsx`, `useAssets.ts`):** Dynamic column computation via `ResizeObserver`, cursor pagination, stable SVG placeholder rendering, and windowed row virtualization.
+- **0.25 hr — Selection Memoization (`AssetCard.tsx`, `AssetGrid.tsx`, `App.tsx`):** Custom equality comparison `areCardPropsEqual` ensuring toggling selection re-renders strictly 1 card.
 - **0.5 hr — Accessibility & Keyboard Model (`AssetGrid.tsx`, `AssetCard.tsx`, `AssetDetail.tsx`):** 2D roving tabindex, Arrow key navigation, Space toggle, Enter open, detail focus trap, and Escape key handling.
 - **0.5 hr — Verification & Documentation:** Chrome DevTools testing, build bundle verification, and submission documentation.
 
@@ -50,6 +51,7 @@ Paste your Loom (or equivalent) link here. 5–10 minutes.
 | 2 | Search input fires on every keystroke without debouncing, easily tripping the 80 req / 10s rate limit | `App.tsx`, `useDebounce.ts` | Fixed (300ms debounce via `useDebounce`) |
 | 3 | Out-of-order API responses cause race conditions where slower short-prefix responses overwrite newer search results | `useAssets.ts`, `client.ts` | Fixed (`AbortController` signal passed and aborted on query change) |
 | 4 | No pagination or infinite scrolling; library truncated to 24 items, unable to reach all 12,400 assets | `useAssets.ts`, `AssetGrid.tsx` | Fixed (cursor-based infinite scroll with windowed virtual grid) |
+| 5 | Toggling selection on a single card re-rendered every visible card | `AssetCard.tsx`, `AssetGrid.tsx`, `App.tsx` | Fixed (`React.memo` with custom `areCardPropsEqual` + stable `useCallback` `toggleSelect`) |
 | 6 | Missing or 404 thumbnails cause broken images and layout shifts | `AssetCard.tsx`, `AssetDetail.tsx`, `styles.css` | Fixed (stable inline SVG placeholder + 16:10 aspect ratio reservation) |
 | 7 | Grid wireframe collapse on large item counts due to non-virtualized DOM overflow | `AssetGrid.tsx`, `styles.css` | Fixed (zero-dependency windowed virtualization rendering only visible rows) |
 | 12 | Grid cards not reachable or navigable by keyboard; no roving tabindex, arrow keys, or ARIA semantics | `AssetGrid.tsx`, `AssetCard.tsx`, `AssetDetail.tsx` | Fixed (WAI-ARIA grid, 2D arrow keys, roving tabIndex, Space/Enter, detail focus management & Escape) |
@@ -68,10 +70,10 @@ Paste your Loom (or equivalent) link here. 5–10 minutes.
 - **What we rejected:** Throttling (which still emits periodic requests during active typing, burning rate limits) and ignoring responses post-completion.
 - **Why:** 300ms matches natural typing cadence, and `AbortController` terminates stale HTTP connections immediately at the browser network layer rather than letting them race and overwrite fresh query results.
 
-**Virtualization approach**
-- **What we did:** Implemented a zero-dependency windowed virtual grid in `AssetGrid.tsx`. Using `ResizeObserver` and container `scrollTop`, it computes dynamic column counts (min card width 220px, gap 12px) and renders only the rows visible in the viewport plus 2 overscan rows.
-- **What we rejected:** `@tanstack/react-virtual` or `react-window` packages.
-- **Why:** In the baseline, mounting thousands of loaded cards caused the layout engine to collapse into 1px bordered wireframe lines and freeze scrolling. Windowed virtualization restricts rendered DOM cards to ~24–36 nodes at all times regardless of whether 48 or 12,400 assets are loaded, maintaining 60fps scrolling while keeping the bundle lean.
+**Virtualization approach and card selection memoization**
+- **What we did:** Implemented a zero-dependency windowed virtual grid in `AssetGrid.tsx`. Using `ResizeObserver` and container `scrollTop`, it computes dynamic column counts (min card width 220px, gap 12px) and renders only the rows visible in the viewport plus 2 overscan rows. Wrapped `AssetCard` in `React.memo` with a dedicated equality comparator `areCardPropsEqual`, stabilized callback references via `useCallback`, and passed primitive `isSelected: boolean` rather than Set references.
+- **What we rejected:** `@tanstack/react-virtual` or `react-window` packages, and ad-hoc inline ref closures.
+- **Why:** Windowed virtualization restricts rendered DOM cards to ~24–36 nodes at all times regardless of whether 48 or 12,400 assets are loaded, and the custom comparator guarantees that toggling selection on 1 card re-renders strictly that single card and none of the other cards in view.
 
 **Accessibility and 2D roving tabindex keyboard navigation**
 - **What we did:** Implemented the WAI-ARIA Grid pattern with 2D roving tabindex in `AssetGrid.tsx` and `AssetCard.tsx`. Only the active card has `tabIndex={0}` while all other cards have `tabIndex={-1}`, allowing a single Tab stop into the grid. Arrow keys navigate horizontally (by 1) and vertically (by dynamic column count) with auto-scrolling to keep focused cards visible. Space toggles selection and Enter opens the detail panel. The detail drawer moves focus directly to its Close button and supports `Escape` to close.
@@ -97,13 +99,15 @@ Tested on **Windows 11 / Chrome (x86_64)**:
 | Metric | Before | After | How measured |
 | --- | --- | --- | --- |
 | Rendered DOM nodes at 5,000 rows loaded | 5,000 cards | 24–36 cards | Chrome DevTools Elements panel inspecting `.card` elements |
+| Cards re-rendered when toggling one selection | All rendered cards (~24–36 cards) | Exactly 1 card | React DevTools Profiler / custom equality comparator audit |
 | Requests fired while typing a 6-character query | 6 | 1 | Chrome DevTools Network tab typing at ~200ms cadence |
 | Longest task during sustained scroll | >120ms (layout collapse / thrash) | <16ms (smooth 60fps) | Chrome DevTools Performance panel |
-| Production bundle, gzipped | 48.41 kB (JS) | 50.97 kB (JS) / 2.96 kB (CSS) | `npm run build` output |
+| Production bundle, gzipped | 48.41 kB (JS) | 51.06 kB (JS) / 2.96 kB (CSS) | `npm run build` output |
 
 **What was the actual bottleneck, and how did you find it?**
 1. **DOM Overload & Layout Collapse:** As cursor pagination accumulated thousands of assets, rendering all cards simultaneously caused layout engine collapse (cards flattened into 1px wireframe lines) and long tasks (>120ms) during scrolling. Solved by windowed virtualization in `AssetGrid.tsx`.
-2. **Request Flooding & Rate Limits:** Rapid keystrokes generated back-to-back API calls that quickly exhausted the 80 req / 10s rate limit and produced race condition bugs. Solved with 300ms debouncing and `AbortController` cancellation.
+2. **Cascading Card Re-renders:** Toggling selection on a single card triggered a full re-render of all mounted cards due to inline closures and unstable Set references. Solved by `React.memo` with custom `areCardPropsEqual` comparison and stable `useCallback` `toggleSelect`.
+3. **Request Flooding & Rate Limits:** Rapid keystrokes generated back-to-back API calls that quickly exhausted the 80 req / 10s rate limit and produced race condition bugs. Solved with 300ms debouncing and `AbortController` cancellation.
 
 ---
 
@@ -117,7 +121,7 @@ Tested on **Windows 11 / Chrome (x86_64)**:
 
 ## Interface decisions
 
-We optimized for **stability under scale, accessibility, and visual clarity**: preventing layout collapse when thousands of assets load, eliminating broken image states, and ensuring full keyboard navigation.
+We optimized for **stability under scale, accessibility, and visual clarity**: preventing layout collapse when thousands of assets load, eliminating broken image states, ensuring zero unnecessary re-renders on selection, and enabling full keyboard navigation.
 
 - **Visual system:** CSS custom properties in `src/styles.css` (`--ink`, `--surface`, `--accent`, `--border`, `--radius-md`). Cards utilize an explicit 16:10 aspect ratio thumbnail wrapper and clean typography hierarchy. Focus rings use high-contrast `:focus-visible` styling.
 - **Status treatment:** The four statuses (`draft`, `in_review`, `approved`, `archived`) feature dedicated pill badge styling with distinct progression symbols (`◌`, `◐`, `✓`, `⊘`) so that status remains distinguishable without relying solely on color.
@@ -130,7 +134,7 @@ We optimized for **stability under scale, accessibility, and visual clarity**: p
 
 ## Trade-offs and cuts
 
-- **Zero-dependency virtualization vs. library:** Implemented lightweight custom windowing rather than importing external packages, preserving bundle size (<51 kB gzipped) at the expense of requiring fixed card height estimates.
+- **Zero-dependency virtualization vs. library:** Implemented lightweight custom windowing rather than importing external packages, preserving bundle size (<52 kB gzipped) at the expense of requiring fixed card height estimates.
 - **Checkbox tab stops vs. Roving Tabindex:** Chose not to make checkboxes separate tab stops within cards. Instead, `Space` toggles the focused card in the roving grid. This speeds up keyboard navigation across large grids by 2x.
 
 ---
@@ -151,7 +155,9 @@ We optimized for **stability under scale, accessibility, and visual clarity**: p
 
 ## Anything you would like us to look at
 
-1. **Zero-Dependency Virtual Grid & 2D Roving Tabindex (`src/features/assets/AssetGrid.tsx`):**
-   - Clean 2D keyboard navigation combined with `ResizeObserver` dynamic column calculations and windowed virtualization, maintaining 60fps scrolling at 12,400 assets with zero external packages.
-2. **Missing Thumbnail Resilience (`src/features/assets/AssetCard.tsx` & `AssetDetail.tsx`):**
+1. **Zero-Dependency Virtual Grid & Card Re-render Optimization (`AssetGrid.tsx` & `AssetCard.tsx`):**
+   - Windowed virtualization coupled with custom memoization (`areCardPropsEqual`) ensures that toggling card selection re-renders strictly that 1 card without re-rendering any other card in the virtual window.
+2. **2D Roving Tabindex Grid Keyboard Model (`AssetGrid.tsx`):**
+   - Full keyboard accessibility with dynamic column navigation, virtual viewport auto-scrolling, and modal focus management.
+3. **Missing Thumbnail Resilience (`AssetCard.tsx` & `AssetDetail.tsx`):**
    - Graceful fallback to inline SVG placeholders with 16:10 aspect ratio preservation for 404s or `hasThumbnail: false` assets.

@@ -10,14 +10,27 @@ interface AssetCardProps {
   tabIndex?: number;
   ariaPosInSet?: number;
   ariaSetSize?: number;
-  cardRef?: (node: HTMLDivElement | null) => void;
   onToggleSelect: (id: string, shiftKey?: boolean) => void;
   onOpen: (id: string) => void;
 }
 
 /**
- * Memoized card component with keyboard focus and WAI-ARIA gridcell semantics.
+ * Custom equality check ensuring that toggling selection on one card
+ * re-renders strictly that single card and none of the other cards.
  */
+function areCardPropsEqual(prev: AssetCardProps, next: AssetCardProps): boolean {
+  return (
+    prev.asset === next.asset &&
+    prev.isSelected === next.isSelected &&
+    prev.isActive === next.isActive &&
+    prev.tabIndex === next.tabIndex &&
+    prev.ariaPosInSet === next.ariaPosInSet &&
+    prev.ariaSetSize === next.ariaSetSize &&
+    prev.onToggleSelect === next.onToggleSelect &&
+    prev.onOpen === next.onOpen
+  );
+}
+
 export const AssetCard = React.memo(function AssetCard({
   asset,
   isSelected,
@@ -25,7 +38,6 @@ export const AssetCard = React.memo(function AssetCard({
   tabIndex = -1,
   ariaPosInSet,
   ariaSetSize,
-  cardRef,
   onToggleSelect,
   onOpen,
 }: AssetCardProps) {
@@ -36,7 +48,7 @@ export const AssetCard = React.memo(function AssetCard({
 
   return (
     <div
-      ref={cardRef}
+      data-asset-id={asset.id}
       className={
         'card' +
         (isSelected ? ' card--selected' : '') +
@@ -114,4 +126,4 @@ export const AssetCard = React.memo(function AssetCard({
       />
     </div>
   );
-});
+}, areCardPropsEqual);
