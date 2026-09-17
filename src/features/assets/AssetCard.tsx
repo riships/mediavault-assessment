@@ -7,14 +7,25 @@ interface AssetCardProps {
   asset: Asset;
   isSelected: boolean;
   isActive: boolean;
-  onToggleSelect: (id: string) => void;
+  tabIndex?: number;
+  ariaPosInSet?: number;
+  ariaSetSize?: number;
+  cardRef?: (node: HTMLDivElement | null) => void;
+  onToggleSelect: (id: string, shiftKey?: boolean) => void;
   onOpen: (id: string) => void;
 }
 
+/**
+ * Memoized card component with keyboard focus and WAI-ARIA gridcell semantics.
+ */
 export const AssetCard = React.memo(function AssetCard({
   asset,
   isSelected,
   isActive,
+  tabIndex = -1,
+  ariaPosInSet,
+  ariaSetSize,
+  cardRef,
   onToggleSelect,
   onOpen,
 }: AssetCardProps) {
@@ -25,16 +36,32 @@ export const AssetCard = React.memo(function AssetCard({
 
   return (
     <div
+      ref={cardRef}
       className={
         'card' +
         (isSelected ? ' card--selected' : '') +
         (isActive ? ' card--active' : '')
       }
-      onClick={() => onOpen(asset.id)}
+      role="gridcell"
+      tabIndex={tabIndex}
+      aria-selected={isSelected}
+      aria-posinset={ariaPosInSet}
+      aria-setsize={ariaSetSize}
+      onClick={(e) => {
+        if (e.shiftKey) {
+          e.preventDefault();
+          onToggleSelect(asset.id, true);
+        } else if (e.metaKey || e.ctrlKey) {
+          e.preventDefault();
+          onToggleSelect(asset.id, false);
+        } else {
+          onOpen(asset.id);
+        }
+      }}
     >
-      <div className="card__thumb-wrapper">
+      <div className="card__thumb-wrapper" aria-hidden="true">
         {showPlaceholder ? (
-          <div className="card__placeholder">
+          <div className="card__placeholder" aria-hidden="true">
             <svg
               className="card__placeholder-icon"
               viewBox="0 0 24 24"
@@ -43,6 +70,7 @@ export const AssetCard = React.memo(function AssetCard({
               strokeWidth="1.5"
               strokeLinecap="round"
               strokeLinejoin="round"
+              aria-hidden="true"
             >
               <rect width="18" height="18" x="3" y="3" rx="2" ry="2" />
               <circle cx="9" cy="9" r="2" />
@@ -56,6 +84,7 @@ export const AssetCard = React.memo(function AssetCard({
             src={thumbnailUrl(asset.id)}
             alt=""
             loading="lazy"
+            aria-hidden="true"
             onError={() => setImgError(true)}
           />
         )}
@@ -75,8 +104,13 @@ export const AssetCard = React.memo(function AssetCard({
         type="checkbox"
         className="card__check"
         checked={isSelected}
-        onClick={(e) => e.stopPropagation()}
-        onChange={() => onToggleSelect(asset.id)}
+        tabIndex={-1} // Handled via card Space toggle to keep single roving tab stop per card
+        aria-label={`Select ${asset.name}`}
+        onClick={(e) => {
+          e.stopPropagation();
+          onToggleSelect(asset.id, e.shiftKey);
+        }}
+        onChange={() => { }}
       />
     </div>
   );

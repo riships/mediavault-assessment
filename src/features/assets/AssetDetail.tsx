@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+﻿import { useEffect, useRef, useState } from 'react';
 import { getAsset, thumbnailUrl, updateAsset } from '@/api/client';
 import { formatBytes, formatDate, formatDuration, statusLabel } from '@/lib/format';
 import type { Asset, AssetStatus } from '@/lib/types';
@@ -50,10 +50,30 @@ function DetailThumbnail({ asset }: { asset: Asset }) {
   );
 }
 
+/**
+ * Detail panel with focus management, Escape key support, and 404 thumbnail fallback.
+ */
 export function AssetDetail({ id, onClose, onSaved }: Props) {
   const [asset, setAsset] = useState<Asset | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
+
+  const closeButtonRef = useRef<HTMLButtonElement>(null);
+
+  // Move focus into the drawer on open, and close on Escape
+  useEffect(() => {
+    closeButtonRef.current?.focus();
+
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') {
+        e.preventDefault();
+        onClose();
+      }
+    };
+
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [onClose]);
 
   useEffect(() => {
     setAsset(null);
@@ -79,14 +99,25 @@ export function AssetDetail({ id, onClose, onSaved }: Props) {
   }
 
   return (
-    <aside className="panel">
+    <aside className="panel" role="dialog" aria-label="Asset detail" aria-modal="true">
       <div className="panel__head">
         <h2>Asset detail</h2>
-        <button onClick={onClose}>Close</button>
+        <button ref={closeButtonRef} onClick={onClose} aria-label="Close detail panel">
+          Close
+        </button>
       </div>
 
-      {error && <p className="error">{error}</p>}
-      {!asset && !error && <p className="muted">Loading…</p>}
+      {error && (
+        <p className="error" role="alert">
+          {error}
+        </p>
+      )}
+      {!asset && !error && (
+        <div className="panel-loader" role="status" aria-live="polite">
+          <div className="spinner" />
+          <span className="muted">Loading asset details…</span>
+        </div>
+      )}
 
       {asset && (
         <div className="panel__body">
@@ -94,7 +125,9 @@ export function AssetDetail({ id, onClose, onSaved }: Props) {
           <h3>{asset.name}</h3>
           <dl className="facts">
             <dt>Id</dt>
-            <dd>{asset.id}</dd>
+            <dd>
+              <code>{asset.id}</code>
+            </dd>
             <dt>Kind</dt>
             <dd>{asset.kind}</dd>
             <dt>Size</dt>
