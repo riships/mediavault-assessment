@@ -1,4 +1,4 @@
-import type { AssetStatus } from './types';
+﻿import type { AssetStatus } from './types';
 
 const UNITS = ['B', 'KB', 'MB', 'GB'];
 
@@ -37,4 +37,15 @@ const STATUS_LABELS: Record<AssetStatus, string> = {
 
 export function statusLabel(status: AssetStatus): string {
   return STATUS_LABELS[status];
+}
+
+const STATUS_SYMBOLS: Record<AssetStatus, string> = {
+  draft: '◌',
+  in_review: '◐',
+  approved: '✓',
+  archived: '⊘',
+};
+
+export function statusSymbol(status: AssetStatus): string {
+  return STATUS_SYMBOLS[status];
 }

@@ -1,6 +1,6 @@
 ﻿import { useEffect, useRef, useState } from 'react';
 import { getAsset, thumbnailUrl, updateAsset } from '@/api/client';
-import { formatBytes, formatDate, formatDuration, statusLabel } from '@/lib/format';
+import { formatBytes, formatDate, formatDuration, statusLabel, statusSymbol } from '@/lib/format';
 import type { Asset, AssetStatus } from '@/lib/types';
 
 const STATUSES: AssetStatus[] = ['draft', 'in_review', 'approved', 'archived'];
@@ -162,17 +162,24 @@ export function AssetDetail({ id, onClose, onSaved }: Props) {
             </ul>
           )}
 
-          <p className="muted">Status</p>
-          <div className="row">
-            {STATUSES.map((status) => (
-              <button
-                key={status}
-                disabled={saving || status === asset.status}
-                onClick={() => setStatus(status)}
-              >
-                {statusLabel(status)}
-              </button>
-            ))}
+          <p className="panel__section-title">Change status</p>
+          <div className="status-button-group">
+            {STATUSES.map((status) => {
+              const isCurrent = status === asset.status;
+              return (
+                <button
+                  key={status}
+                  type="button"
+                  className={`status-btn status-btn--${status}${isCurrent ? ' is-current' : ''}`}
+                  disabled={saving || isCurrent}
+                  onClick={() => setStatus(status)}
+                >
+                  <span className="status-btn__symbol">{statusSymbol(status)}</span>
+                  <span>{statusLabel(status)}</span>
+                  {isCurrent && <span className="status-btn__badge">Current</span>}
+                </button>
+              );
+            })}
           </div>
         </div>
       )}
