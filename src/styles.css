@@ -1112,3 +1112,32 @@ button:disabled {
   color: #ffffff;
   margin-left: 4px;
 }
+
+.bulk-btn--select-all {
+  background: rgba(255, 255, 255, 0.08);
+  color: #e2e8f0;
+  border: 1px solid #334155;
+  font-size: 11px;
+  padding: 4px 10px;
+}
+.bulk-btn--select-all:hover {
+  background: rgba(255, 255, 255, 0.16);
+  border-color: #64748b;
+  color: #ffffff;
+}
+
+.notice__retry-btn {
+  margin-left: 12px;
+  padding: 4px 12px;
+  font-size: 12px;
+  font-weight: 600;
+  border-radius: var(--radius-sm);
+  background: #2563eb;
+  color: #ffffff;
+  border: 1px solid #1d4ed8;
+  cursor: pointer;
+  transition: all 0.12s ease;
+}
+.notice__retry-btn:hover {
+  background: #1d4ed8;
+}

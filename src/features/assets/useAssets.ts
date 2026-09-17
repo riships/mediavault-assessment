@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from 'react';
+﻿import { useCallback, useEffect, useRef, useState } from 'react';
 import { listAssets } from '@/api/client';
 import type { Asset, AssetQuery } from '@/lib/types';
 
@@ -107,9 +107,50 @@ export function useAssets(query: Omit<AssetQuery, 'cursor'>) {
     }
   }, [queryKey, state.loading]);
 
+  // Optimistically apply status changes and return a selective rollback callback
+  const applyOptimisticStatus = useCallback((ids: string[], newStatus: Asset['status']) => {
+    const idSet = new Set(ids);
+    const previousStatuses = new Map<string, Asset['status']>();
+
+    setState((s) => ({
+      ...s,
+      items: s.items.map((item) => {
+        if (idSet.has(item.id)) {
+          previousStatuses.set(item.id, item.status);
+          return { ...item, status: newStatus };
+        }
+        return item;
+      }),
+    }));
+
+    // Selective rollback function reverts ONLY the failed IDs
+    return (failedIds: string[]) => {
+      const failedSet = new Set(failedIds);
+      setState((s) => ({
+        ...s,
+        items: s.items.map((item) => {
+          if (failedSet.has(item.id) && previousStatuses.has(item.id)) {
+            return { ...item, status: previousStatuses.get(item.id)! };
+          }
+          return item;
+        }),
+      }));
+    };
+  }, []);
+
+  // Update a single asset in the local list (e.g. from AssetDetail)
+  const updateAssetInList = useCallback((asset: Asset) => {
+    setState((s) => ({
+      ...s,
+      items: s.items.map((item) => (item.id === asset.id ? asset : item)),
+    }));
+  }, []);
+
   return {
     ...state,
     hasMore: Boolean(state.nextCursor),
     loadMore,
+    applyOptimisticStatus,
+    updateAssetInList,
   };
 }

@@ -1,15 +1,15 @@
-import type { Asset, AssetPage, AssetQuery, BulkResult } from '@/lib/types';
+﻿import type { Asset, AssetPage, AssetQuery, BulkResult } from '@/lib/types';
 
-/**
- * Baseline client. It works on a good network and falls apart on a bad one.
- *
- * Known gaps, all of which are yours to close:
- *   - no request cancellation
- *   - no retry, no backoff, no handling of Retry-After
- *   - no de-duplication of concurrent identical requests
- *   - error information is flattened into a string
- *   - callers cannot distinguish "retry this" from "do not retry this"
- */
+export class ApiError extends Error {
+  constructor(
+    public status: number,
+    public code: string,
+    message: string,
+  ) {
+    super(message);
+    this.name = 'ApiError';
+  }
+}
 
 function toSearchParams(query: AssetQuery): string {
   const params = new URLSearchParams();
@@ -51,13 +51,15 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
   });
   if (!res.ok) {
     let detail = res.statusText;
+    let code = 'unknown';
     try {
       const body = await res.json();
       detail = body?.error?.message ?? detail;
+      code = body?.error?.code ?? code;
     } catch {
       /* response was not JSON */
     }
-    throw new Error(`${res.status}: ${detail}`);
+    throw new ApiError(res.status, code, `${res.status}: ${detail}`);
   }
   return res.json() as Promise<T>;
 }

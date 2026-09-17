@@ -1,5 +1,5 @@
 ﻿import { useEffect, useRef, useState } from 'react';
-import { getAsset, thumbnailUrl, updateAsset } from '@/api/client';
+import { ApiError, getAsset, thumbnailUrl, updateAsset } from '@/api/client';
 import { formatBytes, formatDate, formatDuration, statusLabel, statusSymbol } from '@/lib/format';
 import type { Asset, AssetStatus } from '@/lib/types';
 
@@ -51,7 +51,8 @@ function DetailThumbnail({ asset }: { asset: Asset }) {
 }
 
 /**
- * Detail panel with focus management, Escape key support, and 404 thumbnail fallback.
+ * Detail panel with focus management, Escape key support,
+ * conflict detection (409), and fresh version reload.
  */
 export function AssetDetail({ id, onClose, onSaved }: Props) {
   const [asset, setAsset] = useState<Asset | null>(null);
@@ -91,7 +92,18 @@ export function AssetDetail({ id, onClose, onSaved }: Props) {
       const updated = await updateAsset(asset.id, asset.version, { status });
       setAsset(updated);
       onSaved(updated);
-    } catch (err) {
+    } catch (err: unknown) {
+      if (err instanceof ApiError && err.status === 409) {
+        setError('Version conflict: This asset was modified in another session. Reloading latest version…');
+        try {
+          const fresh = await getAsset(id);
+          setAsset(fresh);
+          onSaved(fresh);
+        } catch {
+          // Keep conflict message
+        }
+        return;
+      }
       setError(err instanceof Error ? err.message : 'Save failed');
     } finally {
       setSaving(false);

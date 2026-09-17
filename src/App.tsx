@@ -46,9 +46,25 @@ export function App() {
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const [activeId, setActiveId] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
+  const [retryableConflicts, setRetryableConflicts] = useState<{
+    ids: string[];
+    status: AssetStatus;
+  } | null>(null);
+
+  const lastSelectedIdRef = useRef<string | null>(null);
 
   // 300ms debounce buffer prevents keystroke flooding and rate limit exhaustion
-  const { items, total, loading, loadingMore, hasMore, loadMore, error } = useAssets({
+  const {
+    items,
+    total,
+    loading,
+    loadingMore,
+    hasMore,
+    loadMore,
+    error,
+    applyOptimisticStatus,
+    updateAssetInList,
+  } = useAssets({
     q: debouncedQ.trim() || undefined,
     status,
     sort,
@@ -82,25 +98,89 @@ export function App() {
     return () => window.removeEventListener('popstate', handlePopState);
   }, []);
 
-  const toggleSelect = useCallback((id: string) => {
-    setSelectedIds((prev) => {
-      const next = new Set(prev);
-      if (next.has(id)) next.delete(id);
-      else next.add(id);
-      return next;
-    });
-  }, []);
+  // Range selection (click and Shift+Click)
+  const toggleSelect = useCallback(
+    (id: string, shiftKey?: boolean) => {
+      setSelectedIds((prev) => {
+        const next = new Set(prev);
 
-  async function applyBulkStatus(next: AssetStatus) {
-    const ids = [...selectedIds];
+        if (shiftKey && lastSelectedIdRef.current) {
+          const lastIdx = items.findIndex((a) => a.id === lastSelectedIdRef.current);
+          const currentIdx = items.findIndex((a) => a.id === id);
+          if (lastIdx !== -1 && currentIdx !== -1) {
+            const start = Math.min(lastIdx, currentIdx);
+            const end = Math.max(lastIdx, currentIdx);
+            for (let i = start; i <= end; i++) {
+              const item = items[i];
+              if (item) next.add(item.id);
+            }
+            lastSelectedIdRef.current = id;
+            return next;
+          }
+        }
+
+        if (next.has(id)) {
+          next.delete(id);
+          lastSelectedIdRef.current = null;
+        } else {
+          next.add(id);
+          lastSelectedIdRef.current = id;
+        }
+        return next;
+      });
+    },
+    [items],
+  );
+
+  const selectAllLoaded = useCallback(() => {
+    setSelectedIds(new Set(items.map((a) => a.id)));
+  }, [items]);
+
+  // Optimistic bulk update with selective rollback on 207 Multi-Status
+  async function applyBulkStatus(next: AssetStatus, targetIds?: string[]) {
+    const ids = targetIds ?? [...selectedIds];
     if (ids.length === 0) return;
     setNotice(null);
+    setRetryableConflicts(null);
+
+    // Optimistically update grid state and obtain selective rollback callback
+    const rollback = applyOptimisticStatus(ids, next);
+    setSelectedIds(new Set());
+
     try {
-      // Batch chunked in client.ts (<= 50 IDs per request) to comply with server limits.
-      const result = await bulkSetStatus(ids, next);
-      setNotice(`${result.applied} updated, ${result.failed} failed.`);
-      setSelectedIds(new Set());
+      // Chunked in client.ts (<= 50 IDs per request) with bounded concurrency = 3
+      const result = await bulkSetStatus(ids, next, 3);
+      const failed = result.results.filter((r) => !r.ok);
+
+      if (failed.length > 0) {
+        // Roll back ONLY the failed IDs; keep the successful updates
+        const failedIds = failed.map((r) => r.id);
+        rollback(failedIds);
+
+        const legalHolds = failed.filter((r) => r.code === 'legal_hold').length;
+        const conflicts = failed.filter((r) => r.code === 'conflict');
+
+        const reasons: string[] = [];
+        if (legalHolds > 0) reasons.push(`${legalHolds} on legal hold (cannot be modified)`);
+        if (conflicts.length > 0) reasons.push(`${conflicts.length} write conflict(s)`);
+
+        setNotice(
+          `${result.applied} updated. ${failed.length} failed (${reasons.join(', ')}).`,
+        );
+
+        // Offer 1-click retry for recoverable conflicts (legal holds will never succeed on retry)
+        if (conflicts.length > 0) {
+          setRetryableConflicts({
+            ids: conflicts.map((r) => r.id),
+            status: next,
+          });
+        }
+      } else {
+        setNotice(`All ${result.applied} assets successfully updated to ${statusLabel(next).toLowerCase()}.`);
+      }
     } catch (err) {
+      // Outright network failure: rollback all
+      rollback(ids);
       setNotice(err instanceof Error ? err.message : 'Bulk update failed');
     }
   }
@@ -206,6 +286,13 @@ export function App() {
             <span className="bulk-bar__label">
               {selectedIds.size === 1 ? 'asset selected' : 'assets selected'}
             </span>
+            <button
+              type="button"
+              className="bulk-btn bulk-btn--select-all"
+              onClick={selectAllLoaded}
+            >
+              Select all loaded ({items.length})
+            </button>
           </div>
 
           <div className="bulk-bar__actions">
@@ -233,7 +320,22 @@ export function App() {
         </aside>
       )}
 
-      {notice && <div className="notice">{notice}</div>}
+      {notice && (
+        <div className="notice" role="status">
+          <span>{notice}</span>
+          {retryableConflicts && (
+            <button
+              type="button"
+              className="notice__retry-btn"
+              onClick={() =>
+                applyBulkStatus(retryableConflicts.status, retryableConflicts.ids)
+              }
+            >
+              Retry {retryableConflicts.ids.length} conflict(s)
+            </button>
+          )}
+        </div>
+      )}
       {error && <div className="error">{error}</div>}
 
       <main className="content">
@@ -255,6 +357,7 @@ export function App() {
             onClose={() => setActiveId(null)}
             onSaved={(updated: Asset) => {
               setActiveId(updated.id);
+              updateAssetInList(updated);
             }}
           />
         )}
